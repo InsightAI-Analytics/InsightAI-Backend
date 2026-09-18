@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+venv/
+.venv/
+env/
+.env
+
+# pytest
+.pytest_cache/
+*.pyc
+
+# IDE
+.idea/
+.vscode/
+.env
+.env.example
