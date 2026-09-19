@@ -39,8 +39,8 @@ def run_analytics(
     if not selected:
         raise AnalyticsError("No datasets found for this query.")
 
-    # Combine datasets if multiple
-    df, source_name = _combine_datasets(selected)
+    # Combine datasets if multiple (relational join if shared keys or concat)
+    df, source_name = _combine_datasets(selected, intent.join_keys)
 
     # Apply filters
     df = _apply_filters(df, intent.filters)
@@ -89,15 +89,103 @@ def _select_datasets(
     return [d for d in datasets if d["name"].lower() in name_set] or datasets
 
 
-def _combine_datasets(datasets: list[dict[str, Any]]) -> tuple[pd.DataFrame, str]:
+def _detect_join_keys(datasets: list[dict[str, Any]], explicit_keys: Optional[list[str]] = None) -> list[str]:
     """
-    Combine multiple DataFrames with a source column.
-    If single dataset, returns as-is with source column added.
+    Determine the join key column(s) across datasets.
+    If explicit_keys are provided, matches them against DataFrame columns.
+    Otherwise, inspects common columns across datasets, prioritizing identifier columns.
+    """
+    if explicit_keys:
+        # Find which of explicit keys exist in all datasets
+        valid_keys = []
+        for key in explicit_keys:
+            key_lower = key.lower().strip()
+            found_in_all = True
+            for d in datasets:
+                df = d["df"]
+                matched = any(c.lower() == key_lower for c in df.columns)
+                if not matched:
+                    found_in_all = False
+                    break
+            if found_in_all:
+                # Find canonical name from first dataset
+                canonical = next(c for c in datasets[0]["df"].columns if c.lower() == key_lower)
+                valid_keys.append(canonical)
+        if valid_keys:
+            return valid_keys
+
+    # Auto-detection: find common columns across all datasets
+    if len(datasets) < 2:
+        return []
+
+    # Exclude internal or purely generic metric names that shouldn't be joined on blindly
+    generic_non_keys = {"revenue", "amount", "price", "units", "quantity", "cost", "total", "value", "count", "date", "_source"}
+    
+    # Get column name sets in lower case
+    col_sets = [{c.lower(): c for c in d["df"].columns if not c.startswith("_")} for d in datasets]
+    common_lower = set(col_sets[0].keys())
+    for cs in col_sets[1:]:
+        common_lower &= set(cs.keys())
+
+    # Prioritize identifier or foreign key columns (e.g. "product_id", "customer_id", "id", "code", "sku")
+    id_candidates = [k for k in common_lower if k.endswith("_id") or k == "id" or k.endswith("_code") or k == "sku"]
+    if id_candidates:
+        return [col_sets[0][id_candidates[0]]]
+
+    # Filter out pure numeric metric columns unless they are discrete categoricals / keys
+    key_candidates = [
+        k for k in common_lower
+        if k not in generic_non_keys
+    ]
+
+    # If datasets have identical column sets, concatenation is almost always the intended operation (e.g., month1 + month2)
+    first_cols = set(col_sets[0].keys())
+    is_identical_schemas = all(set(cs.keys()) == first_cols for cs in col_sets)
+    if is_identical_schemas and not explicit_keys:
+        return []
+
+    if key_candidates:
+        # Pick the first non-generic candidate (e.g., "product", "category", "region")
+        return [col_sets[0][key_candidates[0]]]
+
+    return []
+
+
+def _combine_datasets(
+    datasets: list[dict[str, Any]],
+    join_keys: Optional[list[str]] = None,
+) -> tuple[pd.DataFrame, str]:
+    """
+    Combine multiple DataFrames with relational join or concatenation.
+    If join keys exist or are detected and schemas differ, performs a relational merge.
+    Otherwise, concatenates frames.
     """
     if len(datasets) == 1:
         df = datasets[0]["df"].copy()
         df["_source"] = datasets[0]["name"]
         return df, datasets[0]["name"]
+
+    # Check for relational join candidates
+    keys = _detect_join_keys(datasets, join_keys)
+    if keys:
+        logger.info("Performing relational join on keys: %s across %d datasets", keys, len(datasets))
+        # Start with the first dataset
+        combined = datasets[0]["df"].copy()
+        for i, d in enumerate(datasets[1:], start=2):
+            right_df = d["df"].copy()
+            # Rename overlapping columns that are not join keys to avoid collisions
+            overlap = (set(combined.columns) & set(right_df.columns)) - set(keys) - {"_source"}
+            if overlap:
+                right_df = right_df.rename(
+                    columns={col: f"{col}_{d['name'].split('.')[0]}" for col in overlap}
+                )
+            combined = pd.merge(combined, right_df, on=keys, how="inner")
+
+        if not combined.empty:
+            combined["_source"] = "relational_join"
+            return combined, "joined datasets"
+        else:
+            logger.warning("Relational merge produced 0 rows, falling back to concat")
 
     frames = []
     for d in datasets:

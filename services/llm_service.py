@@ -125,6 +125,7 @@ Return a JSON object with EXACTLY these fields:
   "chart_required": <true|false>,
   "chart_type": "<bar|line|pie>",
   "datasets": <list of dataset names to use, or null for all>,
+  "join_keys": <list of common key columns if question combines multiple datasets relationally, or null>,
   "explanation": "<one-sentence explanation of what you understood>"
 }}
 
@@ -133,9 +134,10 @@ Rules:
 2. For "filters", use format: {{"column_name": "value"}} or {{"column_name": {{"op": ">", "value": 100}}}}.
 3. For "trend" questions (e.g., "show trend by month"), set date_column to the date column and group_by to null.
 4. For "comparison" questions, use group_by with the relevant dimension column.
-5. If chart makes sense: bar for comparisons/rankings, line for trends over time, pie for proportions.
-6. "datasets": null means use all datasets. Otherwise list exact dataset names.
-7. Return ONLY the JSON object, no other text.
+5. If question joins multiple datasets sharing key IDs (e.g., product_id, customer_id), list them in "join_keys".
+6. If chart makes sense: bar for comparisons/rankings, line for trends over time, pie for proportions.
+7. "datasets": null means use all datasets. Otherwise list exact dataset names.
+8. Return ONLY the JSON object, no other text.
 """
 
 

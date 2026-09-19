@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from models.schemas import QueryIntent, ChartData, QueryResponse
+from services.delta_solutioning import generate_delta_solution
 
 
 def build_response(
@@ -23,11 +24,15 @@ def build_response(
     answer = _compose_answer(question, intent, result, metric)
     metrics = _compose_metrics(result, metric, intent)
 
+    # Generate Delta Solutioning (variances, prescriptive recommendations, suggested questions)
+    delta_sol = generate_delta_solution(intent, analytics_result, question)
+
     return QueryResponse(
         question=question,
         answer=answer,
         metrics=metrics,
         chart=chart_data,
+        delta_solution=delta_sol,
     )
 
 

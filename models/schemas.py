@@ -49,11 +49,25 @@ class ChartData(BaseModel):
     y_label: Optional[str] = None
 
 
+class DeltaInsight(BaseModel):
+    metric: str
+    change_percent: Optional[float] = None
+    direction: Optional[str] = None  # "up" | "down" | "neutral"
+    summary: str
+
+
+class DeltaSolution(BaseModel):
+    insights: list[DeltaInsight] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
+    suggested_questions: list[str] = Field(default_factory=list)
+
+
 class QueryResponse(BaseModel):
     question: str
     answer: str
     metrics: Optional[dict[str, Any]] = None
     chart: Optional[ChartData] = None
+    delta_solution: Optional[DeltaSolution] = None
     error: Optional[str] = None
 
 
@@ -71,4 +85,5 @@ class QueryIntent(BaseModel):
     chart_required: bool = False
     chart_type: str = "bar"               # bar|line|pie
     datasets: Optional[list[str]] = None  # which datasets to use (None = all)
+    join_keys: Optional[list[str]] = None # optional specific join columns across datasets
     explanation: str = ""                 # human-readable explanation from LLM
